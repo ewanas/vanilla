@@ -8,9 +8,11 @@
 void shl_exit(int);
 
 #define PIPE            "|"
-#define PROMPT          ">"
+#define PROMPT          "what do you want from gus?! "
 #define MAX_LINE        1000
 #define MAX_OPT_COUNT   5
+
+#define forever       while(1)
 
 #define FAILURE       1
 #define QUIT          0
@@ -39,7 +41,10 @@ Cmd* shl_parse_cmd(char* rawcmd) {
   Cmd* first_cmd = NULL;
   Cmd* last_cmd = NULL;
 
-  buffer = strtok(rawcmd, PIPE);
+  char* pipes = NULL;
+  char* args = NULL;
+
+  buffer = strtok_r(rawcmd, PIPE, &pipes);
 
   // Parse everything in between PIPE's
   if(buffer != NULL) {
@@ -49,30 +54,26 @@ Cmd* shl_parse_cmd(char* rawcmd) {
 
       if(first_cmd == NULL) { // Create the first element of the list
         first_cmd = new_cmd;
-        first_cmd->command = buffer;
-        first_cmd->pipe = NULL;
         last_cmd = first_cmd;
       } else {                // Append a command to the command list
         last_cmd->pipe = new_cmd;
         last_cmd = last_cmd->pipe;
-        last_cmd->command = buffer;
-        last_cmd->pipe = NULL;
       }
-    } while((buffer = (char*)strtok(NULL, PIPE)) != NULL);
-  }
 
-  // Explode the program options and place them in the right place
-  // Place the program name as the first option
-  Cmd* c;
-  for(c = first_cmd; c != NULL; c = c->pipe){
-    c->command = strtok(c->command, " ");
-    c->options[0] = c->command;
+      last_cmd->pipe = NULL;
 
-    int i;
-    for(i = 1; i < MAX_OPT_COUNT + 1; i++){
-      c->options[i] = strtok(NULL, " ");
-      if(c->options[i] == NULL) break;
-    }
+      // Explode the program options and place them in the right place
+      // Place the program name as the first option
+      int i;
+      args = NULL;
+      last_cmd->command = strtok_r(buffer, " ", &args);
+      last_cmd->options[0] = last_cmd->command;
+
+      for(i = 1; i < MAX_OPT_COUNT + 1; i++) {
+        last_cmd->options[i] = strtok_r(NULL, " ", &args);
+        if(last_cmd->options[i] == NULL) break;
+      }
+    } while((buffer = (char*)strtok_r(NULL, PIPE, &pipes)) != NULL);
   }
 
   return first_cmd;
@@ -97,36 +98,38 @@ void shl_free_cmd(Cmd* c) {
  * Runs a given list of commands while setting up the appropriate pipes
  */
 int shl_exec(Cmd* cmd_line) {
-  int pid;
+  pid_t pid;
   int pipefds[2];
 
-  if (cmd_line != NULL && cmd_line->pipe == NULL) { // A program without piping
-    if(execvp(cmd_line->command, cmd_line->options)) {
-      perror(cmd_line->command);
-      exit(errno);
-    }
-  } else if (cmd_line != NULL) {  // A program piped to another
+  if (cmd_line != NULL) {
     pipe(pipefds);
 
     if(pid = fork()) {  // First program
-      close(1);
-      close(pipefds[0]);
-      dup(pipefds[1]);
+      if(cmd_line->pipe != NULL) {
+        close(1);
+        dup(pipefds[1]);
+        close(pipefds[0]);
+      }
 
       if(execvp(cmd_line->command, cmd_line->options)) {
         perror(cmd_line->command);
         exit(errno);
       }
     } else {  // Whatever else exists after the first program that is piped to
-      close(0);
-      dup(pipefds[0]);
-      close(pipefds[1]);
+      if(cmd_line->pipe != NULL) {
+        close(0);
+        dup(pipefds[0]);
+        close(pipefds[1]);
 
-      if(!fork()) shl_exec(cmd_line->pipe);
+        shl_exec(cmd_line->pipe);
+      } else exit(0);
     }
   }
 
-  exit(wait());
+  int status;
+  wait(&status);
+
+  exit(status);
 }
 
 /*
@@ -177,10 +180,12 @@ char* shl_prompt(){
  * then frees the used resources
  */
 int main(int argc, char** argv){
-  while(1){
+  forever {
     Cmd* cmd_line = shl_parse_cmd(shl_prompt());
 
-    if(fork()) wait();
+    printf("gus says...\n");
+
+    if(fork()) wait(NULL);
     else shl_exec(cmd_line);
 
     shl_free_cmd(cmd_line);
