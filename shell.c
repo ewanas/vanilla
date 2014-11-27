@@ -8,7 +8,7 @@
 void shl_exit(int);
 
 #define PIPE            "|"
-#define PROMPT          "what do you want from gus?! "
+#define PROMPT          ">"
 #define MAX_LINE        1000
 #define MAX_OPT_COUNT   5
 
@@ -33,6 +33,25 @@ typedef struct cmd {
 #define MEMERROR(reason) { printf("Memory error: %s\n", reason); shl_exit(FAILURE); }
 
 /*
+ * Given a command, expand its options in the right place in the command
+ */
+void shl_parse_options(Cmd* cmd, char* buffer){
+  char* args = NULL;
+
+  // Explode the program options and place them in the right place
+  // Place the program name as the first option
+  int i;
+  args = NULL;
+  cmd->command = strtok_r(buffer, " \t\n", &args);
+  cmd->options[0] = cmd->command;
+
+  for(i = 1; i < MAX_OPT_COUNT + 1; i++) {
+    cmd->options[i] = strtok_r(NULL, " ", &args);
+    if(cmd->options[i] == NULL) break;
+  }
+}
+
+/*
  * Parses the given string into a linked list showing each command linked
  * to the command that it pipes to
  */
@@ -40,9 +59,7 @@ Cmd* shl_parse_cmd(char* rawcmd) {
   char* buffer;
   Cmd* first_cmd = NULL;
   Cmd* last_cmd = NULL;
-
   char* pipes = NULL;
-  char* args = NULL;
 
   buffer = strtok_r(rawcmd, PIPE, &pipes);
 
@@ -61,18 +78,7 @@ Cmd* shl_parse_cmd(char* rawcmd) {
       }
 
       last_cmd->pipe = NULL;
-
-      // Explode the program options and place them in the right place
-      // Place the program name as the first option
-      int i;
-      args = NULL;
-      last_cmd->command = strtok_r(buffer, " ", &args);
-      last_cmd->options[0] = last_cmd->command;
-
-      for(i = 1; i < MAX_OPT_COUNT + 1; i++) {
-        last_cmd->options[i] = strtok_r(NULL, " ", &args);
-        if(last_cmd->options[i] == NULL) break;
-      }
+      shl_parse_options(last_cmd, buffer);
     } while((buffer = (char*)strtok_r(NULL, PIPE, &pipes)) != NULL);
   }
 
@@ -182,8 +188,6 @@ char* shl_prompt(){
 int main(int argc, char** argv){
   forever {
     Cmd* cmd_line = shl_parse_cmd(shl_prompt());
-
-    printf("gus says...\n");
 
     if(fork()) wait(NULL);
     else shl_exec(cmd_line);
